@@ -1,0 +1,262 @@
+package stargate
+
+import (
+	"math/big"
+	"strings"
+)
+
+const (
+	// 1-2 / 1-2-3 / 4
+	//SendMsg --- Bridge Contract (uint8 msgType, uint64 nonce)
+	SendMsg = "0x8d3ee0df6a4b7e82a7f20a763f1c6826e6176323e655af64f32318827d2112d4"
+	//Swap --- Token Contract (uint16 chainId, uint256 dstPoolId, address from, uint256 amountSD, uint256 eqReward, uint256 eqFee, uint256 protocolFee, uint256 lpFee)
+	Swap = "0x34660fc8af304464529f48a778e03d03e4d34bcd5f9b6f0cfbf3cd238c642f7f"
+	//RedeemRemote --- Token Contract (uint16 chainId, uint256 dstPoolId, address from, uint256 amountLP, uint256 amountSD)
+	RedeemRemote = "0xa33f5c0b76f00f6737b1780a8a7f18e19c3fe8fe9ee01a6c1b8ce1eae5ed54f9"
+	SendCredits  = "0x6939f93e3f21cf1362eb17155b740277de5687dae9a83a85909fd71da95944e7"
+	//SendToChain --- StargateToken Contract (uint16 dstChainId, bytes to, uint256 qty)
+	SendToChain = "0x664e26797cde1146ddfcb9a5d3f4de61179f9c11b2698599bb09e686f442172b"
+
+	// 1-2 / 1-3 / 1-4
+	//PacketReceived --- Layer Zero Contract (index_topic_1 uint16 srcChainId, bytes srcAddress, index_topic_2 address dstAddress, uint64 nonce, bytes32 payloadHash)
+	PacketReceived = "0x2bd2d8a84b748439fd50d79a49502b4eb5faa25b864da6a9ab5c150704be9a4d"
+	//SwapRemote --- Token Contract (address to, uint256 amountSD, uint256 protocolFee, uint256 dstFee)
+	SwapRemote = "0xfb2b592367452f1c437675bed47f5e1e6c25188c17d7ba01a12eb030bc41ccef"
+	//RedeemLocalCallback --- Token Contract (uint16 srcChainId, index_topic_1 bytes srcAddress, index_topic_2 uint256 nonce, uint256 srcPoolId, uint256 dstPoolId, address to, uint256 amountSD, uint256 mintAmountSD)
+	RedeemLocalCallback = "0xc7379a02e530fbd0a46ea1ce6fd91987e96535798231a796bdc0e1a688a50873"
+	//ReceiveFromChain --- StargateToken Contract (uint16 srcChainId, uint64 nonce, uint256 qty)
+	ReceiveFromChain = "0x831bc68226f8d1f734ffcca73602efc4eca13711402ba1d2cc05ee17bb54f631"
+)
+
+// PacketReceived 与 SwapRemote / ReceivedFromChain / RedeemLocalCallback 会在同一笔交易中产生
+// SendMsg 与 Swap / RedeemRemote(?) 会在同一笔交易中产生
+// SendToChain 只会自己产生，目标链上对应 ReceivedFromChain
+
+var StargateContracts = map[string][]string{
+	"eth": {
+		"0x8731d54E9D02c286767d56ac03e8037C07e01e98",
+		"0x150f94B44927F078737562f0fcF3C95c01Cc2376",
+		"0xAf5191B0De278C7286d6C7CC6ab6BB8A73bA2Cd6",
+		"0x38EA452219524Bb87e18dE1C24D3bB59510BD783",
+		"0x8731d54E9D02c286767d56ac03e8037C07e01e98",
+		"0x692953e758c3669290cb1677180c64183cEe374e",
+		"0x0Faf1d2d3CED330824de3B8200fc8dc6E397850d",
+		"0xfa0f307783ac21c39e939acff795e27b650f6e68",
+		"0x590d4f8A68583639f215f675F3a259Ed84790580",
+		"0xE8F55368C82D38bbbbDb5533e7F56AfC2E978CC2",
+		"0x9cef9a0b1bE0D289ac9f4a98ff317c33EAA84eb8",
+		"0xdf0770df86a8034b3efef0a1bb3c889b8332ff56",
+		"0x296F55F8Fb28E498B858d0BcDA06D955B2Cb3f97",
+		"0x101816545f6bd2b1076434b54383a1e633390a2e",
+		"0x4d73adb72bc3dd368966edd0f0b2148401a178e2", // Layer Zero Contract
+	},
+	"arbitrum": {
+		"0x53Bf833A5d6c4ddA888F69c22C88C9f356a41614",
+		"0xbf22f0f184bCcbeA268dF387a49fF5238dD23E40",
+		"0x6694340fc020c5E6B96567843da2df01b2CE1eb6",
+		"0x915A55e36A01285A14f05dE6e81ED9cE89772f8e",
+		"0x892785f33CdeE22A30AEF750F285E18c18040c3e",
+		"0xB6CfcF89a7B22988bfC96632aC2A9D6daB60d641",
+		"0xaa4BF442F024820B2C28Cd0FD72b82c63e66F56C",
+		"0xF39B7Be294cB36dE8c510e267B82bb588705d977",
+		"0x352d8275AAE3e0c2404d9f68f6cEE084B5bEB3DD",
+		"0x4d73adb72bc3dd368966edd0f0b2148401a178e2",
+	},
+	"polygon": {
+		"0x45A01E4e04F14f7A4a6702c74187c5F6222033cd",
+		"0x2F6F07CDcf3588944Bf4C42aC74ff24bF56e7590",
+		"0x1205f31718499dBf1fCa446663B532Ef87481fe1",
+		"0x29e38769f23701A2e4A8Ef0492e19dA4604Be62c",
+		"0x1c272232Df0bb6225dA87f4dEcD9d37c32f63Eea",
+		"0x8736f92646B2542B3e5F3c63590cA7Fe313e283B",
+		"0x9d1B1669c73b033DFe47ae5a0164Ab96df25B944",
+		"0x4d73adb72bc3dd368966edd0f0b2148401a178e2",
+	},
+	"optimism": {
+		"0xB0D502E938ed5f4df2E681fE6E419ff29631d62b",
+		"0xB49c4e680174E331CB0A7fF3Ab58afC9738d5F8b",
+		"0x296F55F8Fb28E498B858d0BcDA06D955B2Cb3f97",
+		"0xd22363e3762cA7339569F3d33EADe20127D5F98C",
+		"0xDecC0c09c3B5f6e92EF4184125D5648a66E35298",
+		"0x165137624F1f692e69659f944BF69DE02874ee27",
+		"0x368605D9C6243A80903b9e326f1Cddde088B8924",
+		"0x2F8bC9081c7FCFeC25b9f41a50d97EaA592058ae",
+		"0x3533F5e279bDBf550272a199a223dA798D9eff78",
+		"0x5421FA1A48f9FF81e4580557E86C7C0D24C18036",
+		"0x701a95707A0290AC8B90b3719e8EE5b210360883",
+		"0x4d73adb72bc3dd368966edd0f0b2148401a178e2",
+	},
+	"fantom": {
+		"0xAf5191B0De278C7286d6C7CC6ab6BB8A73bA2Cd6",
+		"0x2F6F07CDcf3588944Bf4C42aC74ff24bF56e7590",
+		"0x12edeA9cd262006cC3C4E77c90d2CD2DD4b1eb97",
+		"0x45A01E4e04F14f7A4a6702c74187c5F6222033cd",
+		"0x4d73adb72bc3dd368966edd0f0b2148401a178e2",
+	},
+	"bsc": {
+		"0x6694340fc020c5E6B96567843da2df01b2CE1eb6",
+		"0x9aa83081aa06af7208dcc7a4cb72c94d057d2cda",
+		"0x98a5737749490856b401DB5Dc27F522fC314A4e1",
+		"0x4e145a589e4c03cBe3d28520e4BF3089834289Df",
+		"0x7BfD7f2498C4796f10b6C611D9db393D3052510C",
+		"0x6694340fc020c5E6B96567843da2df01b2CE1eb6",
+		"0x4d73adb72bc3dd368966edd0f0b2148401a178e2",
+		"0xB0D502E938ed5f4df2E681fE6E419ff29631d62b",
+	},
+	"avalanche": {
+		"0x45A01E4e04F14f7A4a6702c74187c5F6222033cd",
+		"0x2F6F07CDcf3588944Bf4C42aC74ff24bF56e7590",
+		"0x1205f31718499dBf1fCa446663B532Ef87481fe1",
+		"0x29e38769f23701A2e4A8Ef0492e19dA4604Be62c",
+		"0x1c272232Df0bb6225dA87f4dEcD9d37c32f63Eea",
+		"0x8736f92646B2542B3e5F3c63590cA7Fe313e283B",
+		"0x4d73adb72bc3dd368966edd0f0b2148401a178e2",
+		"0x9d1B1669c73b033DFe47ae5a0164Ab96df25B944",
+	},
+}
+
+var StargatePoolToToken = map[string]map[string]string{
+	"eth": {
+		"0x0faf1d2d3ced330824de3b8200fc8dc6e397850d": "0x6b175474e89094c44da98b954eedeac495271d0f",
+		"0x101816545f6bd2b1076434b54383a1e633390a2e": "0x72e2f4830b9e45d52f80ac08cb2bec0fef72ed9c",
+		"0x1ce66c52c36757daf6551edc04800a0ec9983a09": "0x4691937a7508860f876c9c0a2a617e7d9e945d4b",
+		"0x38ea452219524bb87e18de1c24d3bb59510bd783": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+		"0x430ebff5e3e80a6c58e7e6ada1d90f5c28aa116d": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+		"0x590d4f8a68583639f215f675f3a259ed84790580": "0x57ab1ec28d129707052df4df418d58a2d46d5f51",
+		"0x692953e758c3669290cb1677180c64183cee374e": "0x0c10bf8fcb7bf5412187a595ab97a3609160b5c6",
+		"0x9cef9a0b1be0d289ac9f4a98ff317c33eaa84eb8": "0x8d6cebd76f18e1558d4db88138e2defb3909fad6",
+		"0xd8772edbf88bba2667ed011542343b0eddacda47": "0x9e32b13ce7f2e80a01932b42553652e053d6ed8e",
+		"0xdf0770df86a8034b3efef0a1bb3c889b8332ff56": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+		"0xe8f55368c82d38bbbbdb5533e7f56afc2e978cc2": "0x5f98805a4e8be255a32880fdec7f6728c6568ba0",
+		"0xfa0f307783ac21c39e939acff795e27b650f6e68": "0x853d955acef822db058eb8505911ed77f175b99e",
+	},
+	"bsc": {
+		"0x4e145a589e4c03cbe3d28520e4bf3089834289df": "0xd17479997f34dd9156deef8f95a52d81d265be9c",
+		"0x5a0f550bfcade1d898034d57a6f72e7aef32ce79": "0x4691937a7508860f876c9c0a2a617e7d9e945d4b",
+		"0x68c6c27fb0e02285829e69240be16f32c5f8befe": "0x55d398326f99059ff775485246999027b3197955",
+		"0x7bfd7f2498c4796f10b6c611d9db393d3052510c": "0x3f56e0c36d275367b8c502090edf38289b3dea0d",
+		"0x98a5737749490856b401db5dc27f522fc314a4e1": "0xe9e7cea3dedca5984780bafc599bd69add087d56",
+		"0x9aa83081aa06af7208dcc7a4cb72c94d057d2cda": "0x55d398326f99059ff775485246999027b3197955",
+		"0xd4cec732b3b135ec52a3c0bc8ce4b8cfb9dace46": "0xe552fb52a4f19e44ef5a967632dbc320b0820639",
+	},
+	"polygon": {
+		"0x1205f31718499dbf1fca446663b532ef87481fe1": "0x2791bca1f2de4661ed88a30c99a7a9449aa84174",
+		"0x1c272232df0bb6225da87f4decd9d37c32f63eea": "0x8f3cf7ad23cd3cadbd9735aff958023239c6a063",
+		"0x29e38769f23701a2e4a8ef0492e19da4604be62c": "0xc2132d05d31c914a87c6611c10748aeb04b58e8f",
+		"0x8736f92646b2542b3e5f3c63590ca7fe313e283b": "0xa3fa99a148fa48d14ed51d610c367c61876997f1",
+		"0xeae5c2f6b25933deb62f754f239111413a0a25ef": "0x1b815d120b3ef02039ee11dc2d33de7aa4a8c603",
+	},
+	"fantom": {
+		"0x12edea9cd262006cc3c4e77c90d2cd2dd4b1eb97": "0x04068da6c83afcfa0e13ba15a6696662335d5b75",
+		"0x333b6e02effd8be6075f3de0d8075fed842dd9a3": "0x6626c47c00f1d87902fc13eecfac3ed06d5e8d8a",
+	},
+	"avalanche": {
+		"0x1205f31718499dbf1fca446663b532ef87481fe1": "0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e",
+		"0x1c272232df0bb6225da87f4decd9d37c32f63eea": "0xd24c2ad096400b6fbcd2ad8b24e7acbc21a1da64",
+		"0x29e38769f23701a2e4a8ef0492e19da4604be62c": "0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7",
+		"0x45524dc9d05269e1101ad7cff1639ae2aa20989d": "0xabc9547b534519ff73921b1fba6e672b5f58d083",
+		"0x8736f92646b2542b3e5f3c63590ca7fe313e283b": "0x5c49b268c9841aff1cc3b0a418ff5c3442ee3f3b",
+		"0xeae5c2f6b25933deb62f754f239111413a0a25ef": "0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7",
+	},
+	"arbitrum": {
+		"0x1ae7ca4092c0027bbbb1ce99934528acf6e7074b": "0xcafcd85d8ca7ad1e1c6f82f651fa15e33aefd07b",
+		"0x600e576f9d853c95d58029093a16ee49646f3ca5": "0x93b346b6bc2548da6a1e7d98e9a421b42541425b",
+		"0x892785f33cdee22a30aef750f285e18c18040c3e": "0xff970a61a04b1ca14834a43f5de4533ebddb5cc8",
+		"0x915a55e36a01285a14f05de6e81ed9ce89772f8e": "0x82cbecf39bee528b5476fe6d1550af59a9db6fc0",
+		"0xaa4bf442f024820b2c28cd0fd72b82c63e66f56c": "0x17fc002b466eec40dae837fc4be5c67993ddbd6f",
+		"0xb6cfcf89a7b22988bfc96632ac2a9d6dab60d641": "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9",
+		"0xf39b7be294cb36de8c510e267b82bb588705d977": "0x3f56e0c36d275367b8c502090edf38289b3dea0d",
+	},
+	"optimism": {
+		"0x165137624f1f692e69659f944bf69de02874ee27": "0xda10009cbd5d07dd0cecc66161fc93d7c9000da1",
+		"0x2f8bc9081c7fcfec25b9f41a50d97eaa592058ae": "0x8c6f28f2f1a3c87f0f938b96d27520d9751ec8d9",
+		"0x3533f5e279bdbf550272a199a223da798d9eff78": "0xc40f949f8a4e094d1b49a23ea9241d289b7b2819",
+		"0x368605d9c6243a80903b9e326f1cddde088b8924": "0x2e3d870790dc77a83dd1d18184acc7439a53f475",
+		"0x5421fa1a48f9ff81e4580557e86c7c0d24c18036": "0xdfa46478f9e5ea86d57387849598dbfb2e964b02",
+		"0xb0a7e3b4aedb6f103bc43f2603c6e73151c8886b": "0x871f2f2ff935fd1ed867842ff2a7bfd051a5e527",
+		"0xd22363e3762ca7339569f3d33eade20127d5f98c": "0xb69c8cbcd90a39d8d3d3ccf0a3e968511c3856a0",
+		"0xdecc0c09c3b5f6e92ef4184125d5648a66e35298": "0x7f5c764cbc14f9669b88837ca1490cca17c31607",
+	},
+}
+
+var StargatePoolToConvertRate = map[string]map[string]*big.Int{
+	"eth": {
+		"0x0faf1d2d3ced330824de3b8200fc8dc6e397850d": big.NewInt(1000000000000),
+		"0x101816545f6bd2b1076434b54383a1e633390a2e": big.NewInt(1),
+		"0x1ce66c52c36757daf6551edc04800a0ec9983a09": big.NewInt(1),
+		"0x38ea452219524bb87e18de1c24d3bb59510bd783": big.NewInt(1),
+		"0x430ebff5e3e80a6c58e7e6ada1d90f5c28aa116d": big.NewInt(1),
+		"0x590d4f8a68583639f215f675f3a259ed84790580": big.NewInt(1000000000000),
+		"0x692953e758c3669290cb1677180c64183cee374e": big.NewInt(1),
+		"0x9cef9a0b1be0d289ac9f4a98ff317c33eaa84eb8": big.NewInt(1000000000000),
+		"0xd8772edbf88bba2667ed011542343b0eddacda47": big.NewInt(1),
+		"0xdf0770df86a8034b3efef0a1bb3c889b8332ff56": big.NewInt(1),
+		"0xe8f55368c82d38bbbbdb5533e7f56afc2e978cc2": big.NewInt(1000000000000),
+		"0xfa0f307783ac21c39e939acff795e27b650f6e68": big.NewInt(1000000000000),
+	},
+	"bsc": {
+		"0x4e145a589e4c03cbe3d28520e4bf3089834289df": big.NewInt(1),
+		"0x5a0f550bfcade1d898034d57a6f72e7aef32ce79": big.NewInt(1),
+		"0x68c6c27fb0e02285829e69240be16f32c5f8befe": big.NewInt(1000000000000),
+		"0x7bfd7f2498c4796f10b6c611d9db393d3052510c": big.NewInt(1000000000000),
+		"0x98a5737749490856b401db5dc27f522fc314a4e1": big.NewInt(1000000000000),
+		"0x9aa83081aa06af7208dcc7a4cb72c94d057d2cda": big.NewInt(1000000000000),
+		"0xd4cec732b3b135ec52a3c0bc8ce4b8cfb9dace46": big.NewInt(1),
+	},
+	"polygon": {
+		"0x1205f31718499dbf1fca446663b532ef87481fe1": big.NewInt(1),
+		"0x1c272232df0bb6225da87f4decd9d37c32f63eea": big.NewInt(1000000000000),
+		"0x29e38769f23701a2e4a8ef0492e19da4604be62c": big.NewInt(1),
+		"0x8736f92646b2542b3e5f3c63590ca7fe313e283b": big.NewInt(1000000000000),
+		"0xeae5c2f6b25933deb62f754f239111413a0a25ef": big.NewInt(1),
+	},
+	"fantom": {
+		"0x12edea9cd262006cc3c4e77c90d2cd2dd4b1eb97": big.NewInt(1),
+		"0x333b6e02effd8be6075f3de0d8075fed842dd9a3": big.NewInt(1),
+	},
+	"avalanche": {
+		"0x1205f31718499dbf1fca446663b532ef87481fe1": big.NewInt(1),
+		"0x1c272232df0bb6225da87f4decd9d37c32f63eea": big.NewInt(1000000000000),
+		"0x29e38769f23701a2e4a8ef0492e19da4604be62c": big.NewInt(1),
+		"0x45524dc9d05269e1101ad7cff1639ae2aa20989d": big.NewInt(1),
+		"0x8736f92646b2542b3e5f3c63590ca7fe313e283b": big.NewInt(1000000000000),
+		"0xeae5c2f6b25933deb62f754f239111413a0a25ef": big.NewInt(1),
+	},
+	"arbitrum": {
+		"0x1ae7ca4092c0027bbbb1ce99934528acf6e7074b": big.NewInt(1),
+		"0x600e576f9d853c95d58029093a16ee49646f3ca5": big.NewInt(1000000000000),
+		"0x892785f33cdee22a30aef750f285e18c18040c3e": big.NewInt(1),
+		"0x915a55e36a01285a14f05de6e81ed9ce89772f8e": big.NewInt(1),
+		"0xaa4bf442f024820b2c28cd0fd72b82c63e66f56c": big.NewInt(1000000000000),
+		"0xb6cfcf89a7b22988bfc96632ac2a9d6dab60d641": big.NewInt(1),
+		"0xf39b7be294cb36de8c510e267b82bb588705d977": big.NewInt(1000000000000),
+	},
+	"optimism": {
+		"0x165137624f1f692e69659f944bf69de02874ee27": big.NewInt(1000000000000),
+		"0x2f8bc9081c7fcfec25b9f41a50d97eaa592058ae": big.NewInt(1000000000000),
+		"0x3533f5e279bdbf550272a199a223da798d9eff78": big.NewInt(1000000000000),
+		"0x368605d9c6243a80903b9e326f1cddde088b8924": big.NewInt(1000000000000),
+		"0x5421fa1a48f9ff81e4580557e86c7c0d24c18036": big.NewInt(1000000000000),
+		"0xb0a7e3b4aedb6f103bc43f2603c6e73151c8886b": big.NewInt(1),
+		"0xd22363e3762ca7339569f3d33eade20127d5f98c": big.NewInt(1),
+		"0xdecc0c09c3b5f6e92ef4184125d5648a66e35298": big.NewInt(1),
+	},
+}
+
+func init() {
+	for name, chain := range StargateContracts {
+		StargateContracts[name] = ToLower(chain)
+	}
+}
+
+func ToLower(s []string) []string {
+	ret := make([]string, 0)
+	for _, r := range s {
+		ret = append(ret, strings.ToLower(r))
+	}
+	return ret
+}
+
+type Detail struct {
+	Nonce *big.Int `json:"nonce,omitempty"`
+}

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="8329e44b-4015-4add-8809-389b517f56aa" name="bc">
+        <fileTransfer rootFolder="/home/xiaohui_hu" accessType="SFTP" host="222.20.126.131" port="12502" sshConfigId="11c190fa-8f05-4d02-80af-dac6fe40a731" sshConfig="xiaohui_hu@222.20.126.131:12502 key" keyPair="true">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>

@@ -1,0 +1,4 @@
+FROM 968256543627.dkr.ecr.us-east-1.amazonaws.com/base:go
+
+COPY build.tgz /root/app/target/
+VOLUME /root/app/logs
